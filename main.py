@@ -18,10 +18,21 @@ class Logger:
 
 
 class Client:
-    def __init__(self, token: str, logger: Logger):
-        self.token = token
+    def __init__(self, token_path: str, logger: Logger):
         self.logger = logger.logger
+        self.token = self.read_token(path=token_path)
         self.logger.info(f'[{self.__class__.__name__}] msg: class has initialized successfully')
+
+    def read_token(self, path: str) -> str:
+        try:
+            file_name = os.path.basename(path)
+            with open(path, 'r') as file:
+                file_name = os.path.basename(path)
+                self.logger.info(f'[{self.__class__.__name__}.read_token] msg: token from file "{file_name}" ' +
+                                 'has uploaded successfully')
+                return file.read().strip()
+        except Exception as error:
+            self.logger.error(f'[{self.__class__.__name__}.read_token] error_msg for file "{file_name}": {error}')
 
 
 class YaClient(Client):
@@ -109,35 +120,26 @@ class VkClient(Client):
             self.logger.error(f'[VkClient.get_profile_photos] error_msg: {error}')
 
 
-def read_token(path: str, logger: Logger) -> str:
-    try:
-        file_name = os.path.basename(path)
-        with open(path, 'r') as file:
-            file_name = os.path.basename(path)
-            logger.logger.info(f'[read_token] msg: token from file "{file_name}" has uploaded successfully')
-            return file.read().strip()
-    except Exception as error:
-        logger.logger.error(f'[read_token] error_msg for file "{file_name}": {error}')
-
-
 if __name__ == '__main__':
+    vk_token_path = 'vk_token.txt'
+    ya_token_path = 'ya_token.txt'
     upload_folder = 'vk_profile_photos'
-    count_photos = 50  # default count in fc is 5
+    count_photos = 10  # default count in fc is 5
     account_id = 552934290  # https://vk.com/begemot_korovin
-    path_to_vk_token = 'vk_token.txt'
-    path_to_ya_token = 'ya_token.txt'
 
     my_logger = Logger(name='backup_profile_photos', log_file_name='backup_profile_photos.log')
+    vk_client = VkClient(token_path=vk_token_path, logger=my_logger)
+    ya_client = YaClient(token_path=ya_token_path, logger=my_logger)
 
-    vk_token = read_token(path=path_to_vk_token, logger=my_logger)
-    ya_token = read_token(path=path_to_ya_token, logger=my_logger)
+    if not os.path.exists('uploaded_files.json'):
+        with open('uploaded_files.json', 'w') as file:
+            json.dump([], file)
+            my_logger.logger.info(f'[{__name__}] msg: file "uploaded_files.json" has created')
 
-    vk_client = VkClient(token=vk_token, logger=my_logger)
     profile_photos = vk_client.get_profile_photos(owner_id=account_id, count=count_photos)
     if profile_photos is None:
         my_logger.logger.error(f'[{__name__}] error_msg: failed to get profile photos for account id {account_id}')
 
-    ya_client = YaClient(token=ya_token, logger=my_logger)
     ya_client.create_folder(folder_name=upload_folder)
 
     uploaded_files = set()
@@ -151,24 +153,29 @@ if __name__ == '__main__':
             date = datetime.now().date()
             photo_name = f'{photo_likes}_{date}'
 
-        file_json = json.dumps([{'file_name': f'{photo_name}.jpg', 'size': photo_size}], indent=4)
-        file_jpg = None
+        photo = None
         try:
-            file_jpg = requests.get(url=photo_url).content
+            photo = requests.get(url=photo_url).content
         except Exception as error:
-            print(error)
+            my_logger.logger.error(f'[{__name__}] error_msg: file "{photo_name}.jpg" has not downloaded')
 
-        my_logger.logger.info(f'[{__name__}] msg: uploading file {photo_name}.jpg')
-        status_code = ya_client.upload(file=file_jpg, file_path=f'{upload_folder}/{photo_name}.jpg')
+        my_logger.logger.info(f'[{__name__}] msg: uploading file "{photo_name}.jpg"')
+        status_code = ya_client.upload(file=photo, file_path=f'{upload_folder}/{photo_name}.jpg')
         if status_code == 201:
-            my_logger.logger.info(f'[{__name__}] msg: file {photo_name}.jpg has uploaded successfully')
+            my_logger.logger.info(f'[{__name__}] msg: file "{photo_name}.jpg" has uploaded successfully')
         else:
-            my_logger.logger.error(f'[{__name__}] error_msg: file {photo_name}.jpg has not uploaded')
+            my_logger.logger.error(f'[{__name__}] error_msg: file "{photo_name}.jpg" has not uploaded')
             continue
 
-        my_logger.logger.info(f'[{__name__}] msg: uploading file {photo_name}.json')
-        status_code = ya_client.upload(file=file_json, file_path=f'{upload_folder}/{photo_name}.json')
-        if status_code == 201:
-            my_logger.logger.info(f'[{__name__}] msg: file {photo_name}.json has uploaded successfully')
+        with open('uploaded_files.json', 'r') as file:
+            files_info = json.load(file)
+
+        file_info = {'file_name': f'{photo_name}.jpg', 'size': photo_size}
+        files_info += [file_info]
+
+        with open('uploaded_files.json', 'w') as file:
+            json.dump(files_info, file, indent=4)
+            my_logger.logger.info(f'[{__name__}] msg: information about file "{photo_name}.jpg" has added to ' +
+                                  '"uploaded_files.json"')
 
         uploaded_files.add(str(photo_likes))

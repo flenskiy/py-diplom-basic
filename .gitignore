@@ -142,3 +142,4 @@ cython_debug/
 /backup_profile_photos.log
 /vk_token.txt
 /ya_token.txt
+/uploaded_files.json
